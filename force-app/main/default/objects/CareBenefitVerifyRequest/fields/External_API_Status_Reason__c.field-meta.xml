@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>External_API_Status_Reason__c</fullName>
+    <description>The reason or detail message associated with the status from the external API.</description>
+    <externalId>false</externalId>
+    <label>External API Status Reason</label>
+    <length>32768</length>
+    <trackHistory>false</trackHistory>
+    <type>LongTextArea</type>
+    <visibleLines>3</visibleLines>
+</CustomField>

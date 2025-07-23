@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ValidationRule xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>ValidMemberPlan</fullName>
+    <active>true</active>
+    <description>Ensures that the Member Plan is valid for the Patient.</description>
+    <errorConditionFormula>AND(
+        NOT(ISBLANK(MemberPlan__c)),
+        NOT(ISBLANK(Patient__c)),
+        NOT(ISBLANK(MemberPlan__r.Member__c)),
+        MemberPlan__r.Member__c != Patient__c
+    )</errorConditionFormula>
+    <errorMessage>Invalid Member Plan reference: The Member Plan must be associated with the Patient.</errorMessage>
+</ValidationRule> 

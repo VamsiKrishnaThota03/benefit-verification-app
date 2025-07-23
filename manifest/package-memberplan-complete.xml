@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>MemberPlan__c</members>
+        <name>CustomObject</name>
+    </types>
+    <types>
+        <members>MemberPlan__c.GroupNumber__c</members>
+        <members>MemberPlan__c.PolicyNumber__c</members>
+        <members>MemberPlan__c.SubscriberId__c</members>
+        <members>MemberPlan__c.EffectiveFrom__c</members>
+        <members>MemberPlan__c.EffectiveTo__c</members>
+        <members>MemberPlan__c.MemberNumber__c</members>
+        <members>MemberPlan__c.Member__c</members>
+        <members>MemberPlan__c.Payer__c</members>
+        <members>MemberPlan__c.Subscriber__c</members>
+        <name>CustomField</name>
+    </types>
+    <types>
+        <members>Benefit_Verification_Fields</members>
+        <name>PermissionSet</name>
+    </types>
+    <version>58.0</version>
+</Package> 

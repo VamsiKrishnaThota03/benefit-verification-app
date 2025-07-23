@@ -1,0 +1,54 @@
+<template>
+    <lightning-card title="Create Benefit Verification Request" icon-name="standard:health_care_diagnosis">
+        <div class="slds-p-around_medium">
+            <template if:true={error}>
+                <div class="slds-notify slds-notify_alert slds-theme_alert-texture slds-theme_error" role="alert">
+                    <span class="slds-assistive-text">error</span>
+                    <h2>{error}</h2>
+                </div>
+            </template>
+
+            <lightning-record-edit-form
+                object-api-name="CareBenefitVerifyRequest__c"
+                onsuccess={handleSuccess}
+                onerror={handleError}
+            >
+                <lightning-messages></lightning-messages>
+                <div class="slds-grid slds-gutters slds-wrap">
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                        <lightning-input-field field-name="Patient__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                        <lightning-input-field field-name="MemberPlan__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
+                        <lightning-input-field field-name="ProviderAccount__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <lightning-input-field field-name="ServiceType__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <lightning-input-field field-name="ServiceDate__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <lightning-input-field field-name="DiagnosisCode__c"></lightning-input-field>
+                    </div>
+                    <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
+                        <lightning-input-field field-name="ProcedureCode__c"></lightning-input-field>
+                    </div>
+                </div>
+                <div class="slds-m-top_medium slds-text-align_right">
+                    <lightning-button
+                        type="submit"
+                        label="Submit for Verification"
+                        variant="brand"
+                        disabled={isSubmitting}
+                    ></lightning-button>
+                </div>
+            </lightning-record-edit-form>
+            <template if:true={isSubmitting}>
+                <lightning-spinner alternative-text="Submitting..." size="medium"></lightning-spinner>
+            </template>
+        </div>
+    </lightning-card>
+</template>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Benefit Verification Service Type</label>
+    <description>Access to ServiceType__c field</description>
+    <hasActivationRequired>false</hasActivationRequired>
+    <fieldPermissions>
+        <editable>true</editable>
+        <field>CareBenefitVerifyRequest__c.ServiceType__c</field>
+        <readable>true</readable>
+    </fieldPermissions>
+</PermissionSet> 
