@@ -34,9 +34,8 @@ trigger CareBenefitVerifyRequestTrigger on CareBenefitVerifyRequest__c (before i
             }
         }
         if (!newRequestIds.isEmpty()) {
-            for (Id reqId : newRequestIds) {
-                BenefitVerificationCallout.sendForVerification(reqId);
-            }
+            // Call the future method to handle callouts
+            BenefitVerificationCalloutHandler.processBenefitVerificationCallouts(newRequestIds);
         }
     }
 } 
