@@ -13,11 +13,16 @@ The app is a Salesforce DX project (`force-app/`). It adds custom objects for me
 
 The basic flow:
 
-1. A user fills in the **Benefit Verification Creator** form: patient, member plan, provider, service type, service date, diagnosis code and procedure code.
-2. On insert, `CareBenefitVerifyRequestTrigger` assigns the request to a queue based on its service type.
-3. For requests with status `Submitted`, the trigger calls a `@future` Apex callout. The callout POSTs patient, insurance, provider and service details as JSON to the `Benefit_Verification_API` Named Credential.
-4. The external status and reason are saved on the request. On a successful response, a `CoverageBenefit__c` record is created and the request is marked `Completed`. Failures set the status to `Error`.
-5. An external system can also post results back to the Apex REST endpoint, which creates a `CoverageBenefit__c` record.
+1. A user fills in the **Benefit Verification Creator** form: patient, member plan, provider, service type, service date, diagnosis code and procedure code. The form always saves the request with status `Submitted`.
+2. On insert, `CareBenefitVerifyRequestTrigger` (logic in `CareBenefitVerifyRequestTriggerHandler`) assigns the request to the care queue for its service type.
+3. For every request inserted with status `Submitted`, the trigger enqueues a `BenefitVerificationCallout.Job` (Queueable with callouts, up to 50 requests per job, chained for larger loads). The job POSTs patient, insurance, provider and service details as JSON to the `Benefit_Verification_API` Named Credential.
+4. The external status and reason are saved on the request:
+   - `2xx` acknowledgement: status `In Progress`, waiting for results.
+   - `2xx` with benefit details (`benefitStatus` plus `copay`, `deductible` or `isCovered`): a `CoverageBenefit__c` is created from those values and the request becomes `Completed`.
+   - Non-`2xx`, unparseable response or callout exception: status `Error`, with the reason recorded.
+5. The external system posts results to the Apex REST endpoint, which creates a `CoverageBenefit__c` and marks the request `Completed`.
+
+There is a single submit path. `BenefitVerificationController.createBenefitVerificationRequest` (for Aura/LWC or Apex callers) only inserts the request, so routing and the callout come from the trigger exactly as they do for the form, the API or data loads.
 
 ## Features
 
@@ -26,20 +31,20 @@ The basic flow:
   - `CareBenefitVerifyRequest__c`: patient, member plan, provider, service details, status, external API status and reason
   - `CoverageBenefit__c`: benefit status, copay, deductible, covered flag, verification date
   - `Provider__c`, plus `NPI__c` and `Gender__c` fields on `Account`
-- **LWC request form** (`benefitVerificationCreator`) built on `lightning-record-edit-form`, with toast feedback, exposed as the *Benefit Verification Creator* tab
-- **Queue routing by service type**: Consultation, Infusion or Surgery go to the matching `*_Care_Queue`. `*_Verification_Queue` queues are also included and used by `BenefitVerificationController`.
-- **Outbound callout** to an external benefit verification API through a Named Credential (`@future(callout=true)`)
-- **Inbound Apex REST endpoint** that records coverage benefit results
+- **LWC request form** (`benefitVerificationCreator`) built on `lightning-record-edit-form`, with a loading spinner, inline error banner, success banner with a link to the new request, a Clear button and toasts, exposed as the *Benefit Verification Creator* tab
+- **Queue routing by service type**: Consultation, Infusion or Surgery go to the matching `*_Care_Queue`. `Other` stays with the creator.
+- **Outbound callout** to an external benefit verification API through a Named Credential (Queueable with `Database.AllowsCallouts`, bulk-safe, partial-success DML)
+- **Inbound Apex REST endpoint** that validates input and records coverage benefit results (`201`/`400`/`404`/`500`, no stack traces returned)
 - **Validation rule** `ValidMemberPlan`, which requires the selected member plan to belong to the selected patient
 - **Lightning app** *Benefit Verification* with request, creator and coverage benefit tabs
 - **Permission sets**: `Benefit_Verification_User`, `Benefit_Verification_Basic`, `Benefit_Verification_Fields`, `Benefit_Verification_ServiceType`
-- **Apex test classes** for the callout, controller, REST endpoint and trigger, using HTTP callout mocks
+- **Apex test classes** for the callout, controller, REST endpoint and trigger, with a shared `BenefitVerificationTestData` factory and HTTP callout mocks
 - **Staged deployment manifests** in `manifest/` and helper anonymous Apex scripts in `scripts/apex/`
 
 ## Tech stack
 
 - Salesforce Platform (Health Cloud org, source API version 58.0)
-- Apex (classes, trigger, REST resource, `@future` callouts)
+- Apex (classes, trigger, REST resource, Queueable callouts)
 - Lightning Web Components
 - Salesforce CLI (`sf`)
 
@@ -55,7 +60,7 @@ The basic flow:
 │   ├── objects/             # Custom objects, fields, list views, validation rules
 │   ├── namedCredentials/    # Benefit_Verification_API
 │   ├── permissionsets/
-│   ├── queues/              # Care and Verification queues per service type
+│   ├── queues/              # Care queue per service type
 │   ├── tabs/ flexipages/
 ├── manifest/                # package*.xml manifests for staged deploys
 ├── scripts/apex/            # Anonymous Apex for test data and checks
@@ -118,22 +123,25 @@ sf org assign permset --name Benefit_Verification_User
 
 ### 4. Configure the Named Credential
 
-Go to **Setup → Named Credentials** and edit `Benefit_Verification_API`:
+The Named Credential metadata contains the endpoint only. **No username or password is stored in the repository.** After deploying, go to **Setup → Named Credentials**, edit `Benefit_Verification_API`, and set:
 
 | Setting  | Value                                         |
 |----------|-----------------------------------------------|
-| Endpoint | `<your-benefit-verification-api-url>`         |
+| URL      | `<your-benefit-verification-api-url>`         |
 | Username | `<api-username>`                              |
 | Password | `<api-password>`                              |
 
-The repo's metadata points to a mock endpoint. Replace it with your own endpoint and credentials.
+The repo's metadata points to a mock CloudHub endpoint and a placeholder username. Replace both with your own. Redeploying the Named Credential resets the username to the placeholder and clears the password, so either re-enter them afterwards or leave `namedCredentials/` out of later deploys.
 
 ### 5. Create test data
 
 From **Developer Console → Execute Anonymous**:
 
 ```apex
-Account patient = new Account(Name = 'Demo Patient 001', Gender__c = 'Female');
+Account patient = new Account(
+    FirstName = 'Demo', LastName = 'Patient 001', Gender__c = 'Female',
+    RecordTypeId = Schema.SObjectType.Account.getRecordTypeInfosByDeveloperName().get('PersonAccount').getRecordTypeId()
+);
 insert patient;
 Account provider = new Account(Name = 'Demo Provider 001', NPI__c = '9876543210');
 insert provider;
@@ -160,8 +168,10 @@ insert plan;
 ### 6. Run Apex tests
 
 ```bash
-sf apex run test --test-level RunLocalTests --result-format human --wait 10
+sf apex run test --test-level RunLocalTests --result-format human --code-coverage --wait 10
 ```
+
+The tests need Person Accounts enabled. They use the deployed care queues, or create them if they are missing.
 
 ## Using the app
 
@@ -176,13 +186,13 @@ See [TESTING_INSTRUCTIONS.md](TESTING_INSTRUCTIONS.md) and [SETUP_GUIDE.md](SETU
 
 ### Outbound: benefit verification callout
 
-`POST callout:Benefit_Verification_API`. The body contains `patientDetails`, `insuranceInformation`, `providerInformation` and `serviceDetails`. The response must include `status` and `statusReason`.
+`POST callout:Benefit_Verification_API`. The body contains `patientDetails`, `insuranceInformation`, `providerInformation` and `serviceDetails`. The response should include `status` and `statusReason`. It may also include `benefitStatus`, `copay`, `deductible` and `isCovered`, in which case the coverage benefit is recorded right away.
 
 ### Inbound: Apex REST endpoint
 
 | Method | Path                                                         | Purpose                                                                 |
 |--------|--------------------------------------------------------------|-------------------------------------------------------------------------|
-| POST   | `/services/apexrest/care-benefit-verification-results/v1/`   | Create a `CoverageBenefit__c` for a request and mark the request `Completed`. Returns `201` with `coverageBenefitId`, `400` if the request ID is missing, `500` on error |
+| POST   | `/services/apexrest/care-benefit-verification-results/v1/`   | Create a `CoverageBenefit__c` for a request and mark the request `Completed`. Returns `201` with `coverageBenefitId`; `400` for invalid JSON, a missing or malformed request ID, a missing `benefitStatus` or wrong field types; `404` if the request does not exist or is not visible to the integration user; `500` on unexpected errors (details go to the debug log only) |
 
 Sample payload:
 
@@ -204,3 +214,11 @@ You can test it with Postman, with an authenticated Salesforce session, or with 
 - **Lookups not working in the form**: confirm the fields are Lookup type and check field-level security.
 - **Callout errors**: check the Named Credential settings and the debug logs. The error details are written to `External_API_Status_Reason__c`.
 - **Validation errors**: the Member Plan's member must be the selected Patient.
+
+## Known limitations
+
+- The changes in this version were reviewed statically only. They have **not** been deployed to an org and the Apex tests have **not** been run, because no Salesforce org or CLI was available. Deploy to a sandbox and run `RunLocalTests` before relying on them.
+- Person Accounts are required (the callout reads `Patient__r.FirstName` and `PersonBirthdate`).
+- Requests owned by a queue are processed by the verification job without sharing, but the REST endpoint runs with sharing, so the integration user needs access to the requests it updates.
+- If an org has already used up its Queueable limit in a transaction (for example, inserts from inside a batch that already enqueued a job), new requests are saved but not sent. The trigger logs this. Resubmit them by inserting new requests or by running `BenefitVerificationCallout.enqueue(ids)` from anonymous Apex.
+- `objects/CareBenefitVerifyRequest/` holds fields for the standard Health Cloud `CareBenefitVerifyRequest` object. The code does not use them, and they only deploy to orgs with Health Cloud.

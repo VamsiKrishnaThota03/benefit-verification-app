@@ -74,24 +74,28 @@ This guide walks you through testing the full end-to-end flow of the Benefit Ver
 2. Find the record you just created (sort by "Recently Viewed" if needed).
 3. Click on the record to open it.
 4. Check the following fields:
-   - **Status:** Should be "Submitted" (will update to "In Progress" after a short delay)
-   - **External API Status:** Should update to "Acknowledged" (or similar) after a few seconds
-   - **External API Status Reason:** Should show a message from the API
+   - **Status:** Starts as "Submitted". After the verification job runs (usually a few seconds) it becomes:
+     - "In Progress" when the API acknowledges the request,
+     - "Completed" when the API response already includes benefit details (a Coverage Benefit is created), or
+     - "Error" if the call failed. The reason is in **External API Status Reason**.
+   - **External API Status:** The status returned by the API (for example "Acknowledged")
+   - **External API Status Reason:** The message from the API, or the error details
 
 ---
 
 ## 5. Verify Queue Assignment
 
 1. In the **Care Benefit Verify Requests** list view, add the **Owner** column if not visible.
-2. The request should be assigned to the correct queue based on the **Service Type** (e.g., Consultation → Consultation Queue).
+2. The request should be assigned to the queue for its **Service Type**: Consultation → Consultation Care Queue, Infusion → Infusion Care Queue, Surgery → Surgery Care Queue. "Other" stays with the creator.
 
 ---
 
 ## 6. Verify Coverage Benefit Creation (API Response Simulation)
 
 - (Optional, for full end-to-end test)
-- Use Postman/Thunder Client to POST to the API endpoint, or ask your admin to do this.
-- After the API call, check the **Coverage Benefits** tab for a new record linked to your request.
+- POST the result to `/services/apexrest/care-benefit-verification-results/v1/` (Postman, or `scripts/apex/test.apex` with the request Id filled in).
+- The endpoint returns `201` with the new `coverageBenefitId`, and the request becomes "Completed".
+- Check the **Coverage Benefits** related list on the request.
 
 ---
 

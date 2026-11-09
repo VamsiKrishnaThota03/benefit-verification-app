@@ -34,8 +34,8 @@
    # Navigate to the project directory
    cd benefit-verification-app
 
-   # Deploy the application
-   sf project deploy start
+   # Deploy the application (or deploy in stages, see README)
+   sf project deploy start --source-dir force-app
    ```
 
 3. **Assign Permission Set**
@@ -62,7 +62,7 @@
 Run this in Developer Console (Setup → Developer Console → Debug → Open Execute Anonymous):
 
 ```apex
-// Create test Patient Account
+// Create test Patient (Person Account)
 Account patient = new Account(
     FirstName = 'Test',
     LastName = 'Patient',
@@ -71,20 +71,23 @@ Account patient = new Account(
 );
 insert patient;
 
-// Create Provider Account
-Account provider = new Account(
-    Name = 'Dr. Test Provider',
-    NPI = '1234567890',
-    RecordTypeId = Schema.SObjectType.Account.getRecordTypeInfosByDeveloperName().get('Business').getRecordTypeId()
-);
-insert provider;
+// Create Provider and Payer (business accounts)
+Account provider = new Account(Name = 'Dr. Test Provider', NPI__c = '1234567890');
+Account payer = new Account(Name = 'Test Insurance Co');
+insert new List<Account>{ provider, payer };
 
-// Create Member Plan
-MemberPlan plan = new MemberPlan(
+// Create Member Plan (the member must be the patient, see the ValidMemberPlan rule)
+MemberPlan__c plan = new MemberPlan__c(
     Name = 'Test Plan',
-    PolicyNumber = 'POL123',
-    GroupNumber = 'GRP456',
-    SubscriberId = 'SUB789'
+    PolicyNumber__c = 'POL123',
+    GroupNumber__c = 'GRP456',
+    SubscriberId__c = 'SUB789',
+    MemberNumber__c = 'MEM001',
+    Member__c = patient.Id,
+    Subscriber__c = patient.Id,
+    Payer__c = payer.Id,
+    EffectiveFrom__c = Date.today(),
+    EffectiveTo__c = Date.today().addYears(1)
 );
 insert plan;
 
@@ -109,8 +112,8 @@ Run this in Developer Console:
 
 ```apex
 // Get the latest request
-CareBenefitVerifyRequest request = [
-    SELECT Id FROM CareBenefitVerifyRequest 
+CareBenefitVerifyRequest__c request = [
+    SELECT Id FROM CareBenefitVerifyRequest__c
     ORDER BY CreatedDate DESC LIMIT 1
 ];
 
@@ -125,7 +128,7 @@ String requestBody = JSON.serialize(new Map<String, Object>{
 
 RestRequest req = new RestRequest();
 RestResponse res = new RestResponse();
-req.requestURI = '/services/apexrest/care-benefit-verification-results/';
+req.requestURI = '/services/apexrest/care-benefit-verification-results/v1/';
 req.httpMethod = 'POST';
 req.requestBody = Blob.valueOf(requestBody);
 RestContext.request = req;
@@ -139,15 +142,15 @@ System.debug('Response: ' + res.responseBody.toString());
 ### 4. Verify Results
 1. Check CareBenefitVerifyRequest status:
    ```apex
-   SELECT Id, Status, External_API_Status__c 
-   FROM CareBenefitVerifyRequest 
+   SELECT Id, Status__c, External_API_Status__c
+   FROM CareBenefitVerifyRequest__c
    ORDER BY CreatedDate DESC LIMIT 1
    ```
 
 2. Check CoverageBenefit creation:
    ```apex
-   SELECT Id, BenefitStatus, CopayAmount, DeductibleAmount 
-   FROM CoverageBenefit 
+   SELECT Id, BenefitStatus__c, CopayAmount__c, DeductibleAmount__c
+   FROM CoverageBenefit__c
    ORDER BY CreatedDate DESC LIMIT 1
    ```
 
