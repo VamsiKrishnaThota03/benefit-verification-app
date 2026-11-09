@@ -2,77 +2,81 @@
 private class CoverageBenefitResultControllerTest {
 
     @TestSetup
-    static void makeData(){
-        Account patient = new Account(
-            FirstName = 'Test',
-            LastName = 'Patient',
-            Gender__c = 'Female',
-            RecordTypeId = Schema.SObjectType.Account.getRecordTypeInfosByDeveloperName().get('PersonAccount').getRecordTypeId()
-        );
-        insert patient;
-
-        MemberPlan__c plan = new MemberPlan__c(
-            Name = 'Test Plan',
-            PolicyNumber__c = 'POL123',
-            GroupNumber__c = 'GRP456',
-            SubscriberId__c = 'SUB789'
-        );
-        insert plan;
-
-        CareBenefitVerifyRequest__c request = new CareBenefitVerifyRequest__c(
-            Patient__c = patient.Id,
-            MemberPlan__c = plan.Id,
-            Status__c = 'In Progress'
-        );
-        insert request;
+    static void makeData() {
+        Map<String, SObject> fx = BenefitVerificationTestData.createFixture();
+        insert BenefitVerificationTestData.newRequest(
+            (Account) fx.get('patient'), (MemberPlan__c) fx.get('plan'), null, 'Other', 'In Progress');
     }
 
-    @isTest
-    static void testPostRequestSuccess() {
-        CareBenefitVerifyRequest__c request = [SELECT Id FROM CareBenefitVerifyRequest__c LIMIT 1];
-
+    private static RestResponse post(String body) {
         RestRequest req = new RestRequest();
-        RestResponse res = new RestResponse();
-        req.requestURI = '/services/apexrest/care-benefit-verification-results/';
+        req.requestURI = '/services/apexrest/care-benefit-verification-results/v1/';
         req.httpMethod = 'POST';
-        req.requestBody = Blob.valueOf(JSON.serialize(new Map<String, Object>{
-            'careBenefitVerifyRequestId' => request.Id,
+        req.requestBody = body == null ? null : Blob.valueOf(body);
+        RestResponse res = new RestResponse();
+        RestContext.request = req;
+        RestContext.response = res;
+        CoverageBenefitResultController.createCoverageBenefit();
+        return res;
+    }
+
+    private static String payload(Object requestId, Map<String, Object> extra) {
+        Map<String, Object> body = new Map<String, Object>{
+            'careBenefitVerifyRequestId' => requestId,
             'benefitStatus' => 'Active',
             'copay' => 50.0,
-            'deductible' => 1000.0,
+            'deductible' => 1000,
             'isCovered' => true
-        }));
-        RestContext.request = req;
-        RestContext.response = res;
-
-        Test.startTest();
-        CoverageBenefitResultController.createCoverageBenefit();
-        Test.stopTest();
-
-        System.assertEquals(201, res.statusCode, 'Response status code should be 201 (Created).');
-
-        CareBenefitVerifyRequest__c updatedRequest = [SELECT Status__c FROM CareBenefitVerifyRequest__c WHERE Id = :request.Id];
-        System.assertEquals('Completed', updatedRequest.Status__c, 'Request status should be updated to Completed.');
-
-        List<CoverageBenefit__c> benefits = [SELECT Id FROM CoverageBenefit__c WHERE CareBenefitVerifyRequest__c = :request.Id];
-        System.assertEquals(1, benefits.size(), 'A CoverageBenefit record should have been created.');
+        };
+        if (extra != null) {
+            body.putAll(extra);
+        }
+        return JSON.serialize(body);
     }
 
     @isTest
-    static void testPostRequestFailure() {
-        RestRequest req = new RestRequest();
-        RestResponse res = new RestResponse();
-        req.requestURI = '/services/apexrest/care-benefit-verification-results/';
-        req.httpMethod = 'POST';
-        req.requestBody = Blob.valueOf('{"careBenefitVerifyRequestId": "INVALID_ID"}');
-        RestContext.request = req;
-        RestContext.response = res;
+    static void createsBenefitAndCompletesRequest() {
+        CareBenefitVerifyRequest__c request = [SELECT Id FROM CareBenefitVerifyRequest__c LIMIT 1];
 
         Test.startTest();
-        CoverageBenefitResultController.createCoverageBenefit();
+        RestResponse res = post(payload(request.Id, null));
         Test.stopTest();
 
-        System.assertEquals(500, res.statusCode, 'Response status code should be 500 for an invalid ID.');
+        System.assertEquals(201, res.statusCode, res.responseBody.toString());
+        System.assertEquals('Completed', [SELECT Status__c FROM CareBenefitVerifyRequest__c WHERE Id = :request.Id].Status__c);
+        CoverageBenefit__c benefit = [SELECT CopayAmount__c, DeductibleAmount__c, IsCovered__c FROM CoverageBenefit__c];
+        System.assertEquals(50, benefit.CopayAmount__c);
+        System.assertEquals(1000, benefit.DeductibleAmount__c);
+        System.assertEquals(true, benefit.IsCovered__c);
+    }
+
+    @isTest
+    static void rejectsMissingId() {
+        RestResponse res = post(payload(null, null));
+        System.assertEquals(400, res.statusCode);
+    }
+
+    @isTest
+    static void rejectsMalformedId() {
+        RestResponse res = post(payload('INVALID_ID', null));
+        System.assertEquals(400, res.statusCode);
+        System.assert(!res.responseBody.toString().contains('stacktrace'), 'Stack traces must not be returned.');
+    }
+
+    @isTest
+    static void returns404ForUnknownRequest() {
+        String prefix = CareBenefitVerifyRequest__c.SObjectType.getDescribe().getKeyPrefix();
+        RestResponse res = post(payload(prefix + '000000000000', null));
+        System.assertEquals(404, res.statusCode);
+    }
+
+    @isTest
+    static void rejectsInvalidJsonAndTypes() {
+        System.assertEquals(400, post('{not json').statusCode);
+        System.assertEquals(400, post('[1,2]').statusCode);
+        CareBenefitVerifyRequest__c request = [SELECT Id FROM CareBenefitVerifyRequest__c LIMIT 1];
+        System.assertEquals(400, post(payload(request.Id, new Map<String, Object>{ 'copay' => 'fifty' })).statusCode);
+        System.assertEquals(400, post(payload(request.Id, new Map<String, Object>{ 'benefitStatus' => '' })).statusCode);
+        System.assertEquals(0, [SELECT COUNT() FROM CoverageBenefit__c]);
     }
 }
-
