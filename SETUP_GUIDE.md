@@ -52,8 +52,8 @@
    - Go to Setup → Named Credentials
    - Click "Benefit_Verification_API"
    - Update the endpoint URL if needed
-   - Set the username to "test_user"
-   - Set the password to "test_password"
+   - Enter the API username and password for your verification service.
+     Credentials are never stored in this repository; keep them only in the org.
 
 ## Testing the Application
 
