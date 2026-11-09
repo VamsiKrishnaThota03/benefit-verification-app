@@ -1,174 +1,145 @@
-# Benefit Verification Salesforce Application
+# Benefit Verification App
 
-A native Salesforce app for electronic benefit verification, queue management, and API integration.
+A native Salesforce app that creates care benefit verification requests, routes them to queues by service type, and sends them to an external verification API.
 
----
+![Salesforce](https://img.shields.io/badge/Salesforce-00A1E0?logo=salesforce&logoColor=white)
+![Apex](https://img.shields.io/badge/Apex-1798C1?logo=salesforce&logoColor=white)
+![LWC](https://img.shields.io/badge/Lightning%20Web%20Components-032D60?logo=salesforce&logoColor=white)
+![API 58.0](https://img.shields.io/badge/Salesforce%20API-58.0-blue)
 
-## Table of Contents
+## Overview
 
-- [Project Structure](#project-structure)
-- [Prerequisites](#prerequisites)
-- [Staged Setup & Deployment](#staged-setup--deployment)
-- [Post-Deployment Configuration](#post-deployment-configuration)
-- [Creating Test Data](#creating-test-data)
-- [Using the App (UI Walkthrough)](#using-the-app-ui-walkthrough)
-- [Testing the API Endpoint](#testing-the-api-endpoint)
-- [Error Handling](#error-handling)
-- [Security Notes](#security-notes)
-- [Troubleshooting](#troubleshooting)
-- [Support](#support)
+The app is a Salesforce DX project (`force-app/`). It adds custom objects for member plans, verification requests and coverage benefits. It also includes a Lightning Web Component for entering requests, an Apex trigger that routes and submits each new request, and an Apex REST endpoint that receives verification results.
 
----
+The basic flow:
 
-## Project Structure
+1. A user fills in the **Benefit Verification Creator** form: patient, member plan, provider, service type, service date, diagnosis code and procedure code.
+2. On insert, `CareBenefitVerifyRequestTrigger` assigns the request to a queue based on its service type.
+3. For requests with status `Submitted`, the trigger calls a `@future` Apex callout. The callout POSTs patient, insurance, provider and service details as JSON to the `Benefit_Verification_API` Named Credential.
+4. The external status and reason are saved on the request. On a successful response, a `CoverageBenefit__c` record is created and the request is marked `Completed`. Failures set the status to `Error`.
+5. An external system can also post results back to the Apex REST endpoint, which creates a `CoverageBenefit__c` record.
 
-- `force-app/` — Salesforce metadata (objects, fields, classes, LWC, etc.)
-- `scripts/` — Apex scripts for test data and API testing
-- `README.md` — This file
-- `SETUP_GUIDE.md` — Additional setup and troubleshooting instructions
-- `sfdx-project.json` — Salesforce project configuration
+## Features
 
----
+- **Custom data model**
+  - `MemberPlan__c`: member, payer, subscriber, policy, group and member numbers, effective dates
+  - `CareBenefitVerifyRequest__c`: patient, member plan, provider, service details, status, external API status and reason
+  - `CoverageBenefit__c`: benefit status, copay, deductible, covered flag, verification date
+  - `Provider__c`, plus `NPI__c` and `Gender__c` fields on `Account`
+- **LWC request form** (`benefitVerificationCreator`) built on `lightning-record-edit-form`, with toast feedback, exposed as the *Benefit Verification Creator* tab
+- **Queue routing by service type**: Consultation, Infusion or Surgery go to the matching `*_Care_Queue`. `*_Verification_Queue` queues are also included and used by `BenefitVerificationController`.
+- **Outbound callout** to an external benefit verification API through a Named Credential (`@future(callout=true)`)
+- **Inbound Apex REST endpoint** that records coverage benefit results
+- **Validation rule** `ValidMemberPlan`, which requires the selected member plan to belong to the selected patient
+- **Lightning app** *Benefit Verification* with request, creator and coverage benefit tabs
+- **Permission sets**: `Benefit_Verification_User`, `Benefit_Verification_Basic`, `Benefit_Verification_Fields`, `Benefit_Verification_ServiceType`
+- **Apex test classes** for the callout, controller, REST endpoint and trigger, using HTTP callout mocks
+- **Staged deployment manifests** in `manifest/` and helper anonymous Apex scripts in `scripts/apex/`
 
-## Prerequisites
+## Tech stack
 
-- Salesforce Developer Edition org (or sandbox)
-- Salesforce CLI (`sf` or `sfdx`) installed
+- Salesforce Platform (Health Cloud org, source API version 58.0)
+- Apex (classes, trigger, REST resource, `@future` callouts)
+- Lightning Web Components
+- Salesforce CLI (`sf`)
+
+## Project structure
+
+```
+.
+├── force-app/main/default/
+│   ├── applications/        # Benefit Verification Lightning app
+│   ├── classes/             # Apex controllers, callouts, REST resource, tests
+│   ├── triggers/            # CareBenefitVerifyRequestTrigger
+│   ├── lwc/                 # benefitVerificationCreator component
+│   ├── objects/             # Custom objects, fields, list views, validation rules
+│   ├── namedCredentials/    # Benefit_Verification_API
+│   ├── permissionsets/
+│   ├── queues/              # Care and Verification queues per service type
+│   ├── tabs/ flexipages/
+├── manifest/                # package*.xml manifests for staged deploys
+├── scripts/apex/            # Anonymous Apex for test data and checks
+├── SETUP_GUIDE.md           # Extra setup and troubleshooting notes
+├── TESTING_INSTRUCTIONS.md  # Manual test steps
+└── sfdx-project.json
+```
+
+## Getting started
+
+### Prerequisites
+
+- A Salesforce org (Developer Edition, sandbox, or Health Cloud org). The callout reads `Patient__r.FirstName` and `PersonBirthdate`, so Person Accounts must be enabled.
+- [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) (`sf`)
 - Permission to deploy metadata and assign permission sets
 
----
-
-## Staged Setup & Deployment
-
-**Important:**
-For a smooth deployment, deploy metadata in the following order to avoid dependency errors.
-
-### 1. **Clone or Download the Project**
+### 1. Clone and authenticate
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/VamsiKrishnaThota03/benefit-verification-app.git
 cd benefit-verification-app
-```
-
-### 2. **Authenticate to Your Salesforce Org**
-
-```bash
 sf org login web
 ```
-- Log in to your Salesforce org in the browser window that opens.
 
-### 3. **Staged Deployment Steps**
+### 2. Deploy in stages
 
-#### **A. Deploy Custom Objects and Fields First**
+Deploy in this order to avoid dependency errors:
 
 ```bash
+# A. Custom objects and fields
 sf project deploy start --manifest manifest/package-objects.xml
-```
-- This deploys all custom objects and their fields.
 
-#### **B. Deploy Permission Sets and Queues**
-
-```bash
+# B. Permission sets and queues
 sf project deploy start --manifest manifest/package-permset.xml
 sf project deploy start --manifest manifest/package-queues.xml
-```
 
-#### **C. Deploy Apex Classes and Triggers**
-
-```bash
+# C. Apex classes and triggers
 sf project deploy start --manifest manifest/package-apex.xml
-```
 
-#### **D. Deploy Lightning Web Components (LWC)**
-
-```bash
+# D. Lightning Web Components
 sf project deploy start --source-dir force-app/main/default/lwc
-```
 
-#### **E. Deploy Tabs, Flexipages, and Application**
-
-```bash
+# E. Tabs, flexipages and application
 sf project deploy start --manifest manifest/package.xml
 ```
 
-**Note:**
-If you encounter deployment errors, deploy the metadata in even smaller chunks (e.g., deploy each object or permission set individually), then proceed to the next step.
+If a step fails, deploy smaller pieces (for example one object or permission set at a time), then continue.
 
-> **Special Note: Permission Sets and Required Fields**
->
-> If you get a deployment error like:
-> 
-> `You cannot deploy to a required field: CareBenefitVerifyRequest__c.ServiceType__c`
->
-> **Do the following:**
-> 1. Open the field’s metadata file (e.g., `force-app/main/default/objects/CareBenefitVerifyRequest__c/fields/ServiceType__c.field-meta.xml`).
-> 2. Change `<required>true</required>` to `<required>false</required>`.
-> 3. Deploy the permission sets and related metadata.
-> 4. Change the field’s metadata back to `<required>true</required>`.
-> 5. Redeploy the field metadata (and object, if needed).
->
-> This ensures your deployment succeeds and your field remains required in the org.
+> **Required fields and permission sets**
+> If you see `You cannot deploy to a required field: CareBenefitVerifyRequest__c.ServiceType__c`:
+> 1. In `force-app/main/default/objects/CareBenefitVerifyRequest__c/fields/ServiceType__c.field-meta.xml`, change `<required>true</required>` to `false`.
+> 2. Deploy the permission sets.
+> 3. Change the field back to `<required>true</required>` and redeploy it.
 
-### 4. **Assign the Permission Set**
+### 3. Assign the permission set
 
 ```bash
 sf org assign permset --name Benefit_Verification_User
 ```
 
----
+### 4. Configure the Named Credential
 
-## Post-Deployment Configuration
+Go to **Setup → Named Credentials** and edit `Benefit_Verification_API`:
 
-### 1. **Configure Named Credential**
+| Setting  | Value                                         |
+|----------|-----------------------------------------------|
+| Endpoint | `<your-benefit-verification-api-url>`         |
+| Username | `<api-username>`                              |
+| Password | `<api-password>`                              |
 
-- Go to **Setup → Named Credentials**.
-- Edit `Benefit_Verification_API`:
-  - **Endpoint:** `https://infinitusmockbvendpoint-rji9z4.5sc6y6-2.usa-e2.cloudhub.io/benefit-verification-request`
-  - **Username:** `test_user`
-  - **Password:** `test_password`
-- Save.
+The repo's metadata points to a mock endpoint. Replace it with your own endpoint and credentials.
 
-### 2. **Add Tabs to App Navigation**
+### 5. Create test data
 
-- Go to **Setup → App Manager**.
-- Edit the **Benefit Verification** app.
-- Add **Member Plans** and **Care Benefit Verify Requests** to the navigation bar.
-- Save.
+From **Developer Console → Execute Anonymous**:
 
-### 3. **(If Needed) Create Tabs for Custom Objects**
-
-- Go to **Setup → Tabs**.
-- Create new tabs for `MemberPlan__c` and `CareBenefitVerifyRequest__c` if not already present.
-
----
-
-## Creating Test Data
-
-### **A. Using the UI**
-
-1. Go to the **Accounts** tab and create:
-   - A Patient (e.g., "Demo Patient 001")
-   - A Provider (e.g., "Demo Provider 001")
-   - A Payer (e.g., "Demo Insurance Co 001")
-2. Go to the **Member Plans** tab and create a new plan, linking to the above accounts.
-
-### **B. Using Apex Script**
-
-- Open **Developer Console → Execute Anonymous** and run:
 ```apex
-// Create Patient Account
 Account patient = new Account(Name = 'Demo Patient 001', Gender__c = 'Female');
 insert patient;
-
-// Create Provider Account
 Account provider = new Account(Name = 'Demo Provider 001', NPI__c = '9876543210');
 insert provider;
-
-// Create Payer Account
 Account payer = new Account(Name = 'Demo Insurance Co 001');
 insert payer;
 
-// Create Member Plan
 MemberPlan__c plan = new MemberPlan__c(
     Name = 'Demo Plan 001',
     GroupNumber__c = 'GRP-001',
@@ -184,38 +155,37 @@ MemberPlan__c plan = new MemberPlan__c(
 insert plan;
 ```
 
----
+`scripts/apex/setup-test-data.apex` has a similar script.
 
-## Using the App (UI Walkthrough)
+### 6. Run Apex tests
 
-### 1. **Create a Benefit Verification Request**
-
-- Go to the **Benefit Verification Creator** tab.
-- Use the lookup fields to select Patient, Member Plan, and Provider.
-- Fill in Service Type, Service Date, Diagnosis Code, and Procedure Code.
-- Click **Submit for Verification**.
-- You should see a success message and the request should appear in the **Care Benefit Verify Requests** tab.
-
-### 2. **Check Queue Assignment**
-
-- In the **Care Benefit Verify Requests** tab, add the **Owner** column to the list view.
-- Requests with Service Type "Consultation", "Infusion", or "Surgery" should be owned by the corresponding queue.
-
-### 3. **View and Manage Records**
-
-- Use the **Member Plans** and **Care Benefit Verify Requests** tabs to view, edit, and manage records.
-- Use list view filters and search as needed.
-
----
-
-## Testing the API Endpoint
-
-### **Endpoint**
-```
-POST /services/apexrest/care-benefit-verification-results/v1/
+```bash
+sf apex run test --test-level RunLocalTests --result-format human --wait 10
 ```
 
-### **Sample Request Payload**
+## Using the app
+
+1. Open the **Benefit Verification** app and go to the **Benefit Verification Creator** tab.
+2. Select a Patient, Member Plan and Provider. Fill in Service Type, Service Date, Diagnosis Code and Procedure Code, then submit.
+3. In **Care Benefit Verify Requests**, add the **Owner** column to the list view. Consultation, Infusion and Surgery requests should be owned by the matching queue.
+4. After the callout runs, check **External API Status** and **External API Status Reason** on the request, and the related **Coverage Benefit** record.
+
+See [TESTING_INSTRUCTIONS.md](TESTING_INSTRUCTIONS.md) and [SETUP_GUIDE.md](SETUP_GUIDE.md) for more detail.
+
+## API
+
+### Outbound: benefit verification callout
+
+`POST callout:Benefit_Verification_API`. The body contains `patientDetails`, `insuranceInformation`, `providerInformation` and `serviceDetails`. The response must include `status` and `statusReason`.
+
+### Inbound: Apex REST endpoint
+
+| Method | Path                                                         | Purpose                                                                 |
+|--------|--------------------------------------------------------------|-------------------------------------------------------------------------|
+| POST   | `/services/apexrest/care-benefit-verification-results/v1/`   | Create a `CoverageBenefit__c` for a request and mark the request `Completed`. Returns `201` with `coverageBenefitId`, `400` if the request ID is missing, `500` on error |
+
+Sample payload:
+
 ```json
 {
   "careBenefitVerifyRequestId": "a2Uxx00000043YnEAI",
@@ -226,59 +196,11 @@ POST /services/apexrest/care-benefit-verification-results/v1/
 }
 ```
 
-### **How to Test**
-
-- Use Postman or an Apex script (see `scripts/apex/test.apex`) to POST to the endpoint.
-- The API will create a `CoverageBenefit__c` record and update the request status.
-
----
-
-## Error Handling
-
-- The app will show clear error messages for:
-  - Missing required fields
-  - Invalid data formats
-  - API authentication or callout errors
-  - Validation rule failures (e.g., mismatched Patient/Member Plan)
-- API endpoint returns appropriate HTTP status codes and error messages.
-
----
-
-## Security Notes
-
-- All external API credentials are managed via **Named Credentials** (never hardcoded).
-- Permission sets control access to objects and fields.
-- Field-level security is enforced.
-- For production, consider adding IP restrictions or OAuth/JWT authentication to the REST endpoint.
-
----
+You can test it with Postman, with an authenticated Salesforce session, or with `scripts/apex/test.apex`.
 
 ## Troubleshooting
 
-- **Records not visible in UI:**  
-  - Ensure tabs are added to the app navigation.
-  - Check permission set assignment.
-  - Refresh browser or log out/in.
-
-- **Lookups not working in LWC:**  
-  - Confirm field type is Lookup in Object Manager.
-  - Check field-level security and page layout.
-
-- **API errors:**  
-  - Check Named Credential configuration.
-  - Review debug logs in Setup.
-
-- **Validation errors:**  
-  - Ensure all required fields are filled and relationships are correct.
-
----
-
-## Support
-
-- For setup or usage questions, check the `SETUP_GUIDE.md` for detailed instructions.
-- For code or deployment issues, review the debug logs in Salesforce Setup.
-- For further help, contact [Your Name/Email].
-
----
-
-**Enjoy using your Benefit Verification Salesforce Application!** 
+- **Records not visible**: make sure the tabs are in the app navigation and the permission set is assigned. Then refresh.
+- **Lookups not working in the form**: confirm the fields are Lookup type and check field-level security.
+- **Callout errors**: check the Named Credential settings and the debug logs. The error details are written to `External_API_Status_Reason__c`.
+- **Validation errors**: the Member Plan's member must be the selected Patient.
