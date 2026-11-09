@@ -1,34 +1,49 @@
 <template>
     <lightning-card title="Create Benefit Verification Request" icon-name="standard:health_care_diagnosis">
-        <div class="slds-p-around_medium">
-            <template if:true={error}>
-                <div class="slds-notify slds-notify_alert slds-theme_alert-texture slds-theme_error" role="alert">
-                    <span class="slds-assistive-text">error</span>
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium slds-is-relative">
+            <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
+                Requests are routed to the care queue for their service type and sent for verification automatically.
+            </p>
+
+            <template lwc:if={error}>
+                <div class="slds-notify slds-notify_alert slds-alert_error slds-m-bottom_small" role="alert">
+                    <span class="slds-assistive-text">Error</span>
                     <h2>{error}</h2>
+                </div>
+            </template>
+
+            <template lwc:if={lastCreatedId}>
+                <div class="slds-notify slds-notify_alert slds-alert_offline slds-theme_success slds-m-bottom_small" role="status">
+                    <span class="slds-assistive-text">Success</span>
+                    <h2>
+                        Request submitted.
+                        <a href={lastCreatedUrl} onclick={handleViewRecord}>View the request</a>
+                    </h2>
                 </div>
             </template>
 
             <lightning-record-edit-form
                 object-api-name="CareBenefitVerifyRequest__c"
+                onsubmit={handleSubmit}
                 onsuccess={handleSuccess}
                 onerror={handleError}
             >
                 <lightning-messages></lightning-messages>
                 <div class="slds-grid slds-gutters slds-wrap">
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
-                        <lightning-input-field field-name="Patient__c"></lightning-input-field>
+                        <lightning-input-field field-name="Patient__c" required></lightning-input-field>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
-                        <lightning-input-field field-name="MemberPlan__c"></lightning-input-field>
+                        <lightning-input-field field-name="MemberPlan__c" required></lightning-input-field>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-3">
                         <lightning-input-field field-name="ProviderAccount__c"></lightning-input-field>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                        <lightning-input-field field-name="ServiceType__c"></lightning-input-field>
+                        <lightning-input-field field-name="ServiceType__c" required></lightning-input-field>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
-                        <lightning-input-field field-name="ServiceDate__c"></lightning-input-field>
+                        <lightning-input-field field-name="ServiceDate__c" required></lightning-input-field>
                     </div>
                     <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2">
                         <lightning-input-field field-name="DiagnosisCode__c"></lightning-input-field>
@@ -39,6 +54,12 @@
                 </div>
                 <div class="slds-m-top_medium slds-text-align_right">
                     <lightning-button
+                        class="slds-m-right_x-small"
+                        label="Clear"
+                        onclick={handleReset}
+                        disabled={isSubmitting}
+                    ></lightning-button>
+                    <lightning-button
                         type="submit"
                         label="Submit for Verification"
                         variant="brand"
@@ -46,8 +67,9 @@
                     ></lightning-button>
                 </div>
             </lightning-record-edit-form>
-            <template if:true={isSubmitting}>
-                <lightning-spinner alternative-text="Submitting..." size="medium"></lightning-spinner>
+
+            <template lwc:if={isSubmitting}>
+                <lightning-spinner alternative-text="Submitting request" size="medium"></lightning-spinner>
             </template>
         </div>
     </lightning-card>
