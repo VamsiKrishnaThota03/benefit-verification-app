@@ -52,9 +52,16 @@
         <members>BenefitVerificationController</members>
         <members>BenefitVerificationControllerTest</members>
         <members>BenefitVerificationResponse</members>
+        <members>BenefitVerificationTestData</members>
+        <members>CareBenefitVerifyRequestTriggerHandler</members>
+        <members>CareBenefitVerifyRequestTriggerTest</members>
         <members>CoverageBenefitResultController</members>
         <members>CoverageBenefitResultControllerTest</members>
         <name>ApexClass</name>
+    </types>
+    <types>
+        <members>CareBenefitVerifyRequestTrigger</members>
+        <name>ApexTrigger</name>
     </types>
     <types>
         <members>benefitVerificationCreator</members>
